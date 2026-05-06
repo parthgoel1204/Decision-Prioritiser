@@ -1,0 +1,12 @@
+# Dependencies
+node_modules/
+
+# Production
+dist/
+
+# Environment
+.env
+.env.local
+
+# Logs
+*.log
