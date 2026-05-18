@@ -5,6 +5,8 @@ import { signup, login } from './routes/auth.js';
 import {
   createTask,
   getTasks,
+  updateTask,
+  getTaskHistory,
   getRecommendation,
   snoozeTask,
   completeTask,
@@ -12,6 +14,11 @@ import {
   getWeights,
   updateWeights,
   getWeeklyStats,
+  getWeeklyReview,
+  exportData,
+  getTags,
+  renameTag,
+  deleteTag,
 } from './routes/tasks.js';
 
 dotenv.config();
@@ -25,19 +32,41 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// Auth
 app.post('/api/auth/signup', signup);
 app.post('/api/auth/login', login);
 
+// Tasks CRUD
 app.post('/api/tasks', ...createTask);
 app.get('/api/tasks', getTasks);
+app.put('/api/tasks/:id', updateTask);
+app.get('/api/tasks/history', getTaskHistory);
+
+// Recommendation
 app.get('/api/recommendation', getRecommendation);
+
+// Task actions
 app.post('/api/snooze', snoozeTask);
 app.post('/api/complete', completeTask);
 app.post('/api/archive', archiveTask);
+
+// Weights
 app.get('/api/weights', getWeights);
 app.post('/api/weights', updateWeights);
-app.get('/api/stats', getWeeklyStats);
 
+// Stats & Review
+app.get('/api/stats', getWeeklyStats);
+app.get('/api/stats/review', getWeeklyReview);
+
+// Tags
+app.get('/api/tags', getTags);
+app.put('/api/tags/rename', renameTag);
+app.delete('/api/tags', deleteTag);
+
+// Export
+app.get('/api/export', exportData);
+
+// Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
