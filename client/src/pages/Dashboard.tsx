@@ -97,7 +97,7 @@ export default function Dashboard() {
   // ── Timer ────────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let interval: ReturnType<typeof setInterval>;
     if (timerRunning && timerSeconds > 0) {
       interval = setInterval(() => setTimerSeconds((s) => s - 1), 1000);
     } else if (timerSeconds === 0) {

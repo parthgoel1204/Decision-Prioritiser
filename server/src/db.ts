@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dbPath = process.env.DATABASE_URL || './data.db';
-const db = new Database(path.resolve(__dirname, dbPath));
+const db: Database.Database = new Database(path.resolve(__dirname, dbPath));
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (

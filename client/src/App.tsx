@@ -4,6 +4,9 @@ import axios from 'axios';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
+// Set base URL for production API requests
+axios.defaults.baseURL = import.meta.env.VITE_API_URL || '';
+
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Dashboard from './pages/Dashboard';
