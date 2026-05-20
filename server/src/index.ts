@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { signup, login } from './routes/auth.js';
+import { initDb } from './db.js';
 import {
   createTask,
   getTasks,
@@ -22,6 +23,9 @@ import {
 } from './routes/tasks.js';
 
 dotenv.config();
+
+// Initialize the Database
+initDb();
 
 const app = express();
 const port = process.env.PORT || 4000;

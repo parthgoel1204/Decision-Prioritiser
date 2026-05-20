@@ -16,7 +16,7 @@ const taskSchema = z.object({
 
 export const createTask = [
   authenticate,
-  (req: AuthRequest, res: Response) => {
+  async (req: AuthRequest, res: Response) => {
     const result = taskSchema.safeParse(req.body);
     
     if (!result.success) {
@@ -25,46 +25,61 @@ export const createTask = [
     
     const { title, tags, impact_score, urgency_score, learning_score, risk_score, energy_score, first_step } = result.data;
     
-    const insertTask = db.prepare(`
-      INSERT INTO tasks (user_id, title, tags, impact_score, urgency_score, learning_score, risk_score, energy_score, first_step)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    
-    const resultTask = insertTask.run(
-      req.userId,
-      title,
-      tags || '',
-      impact_score || 3,
-      urgency_score || 3,
-      learning_score || 3,
-      risk_score || 3,
-      energy_score || 3,
-      first_step || ''
-    );
-    
-    db.prepare(`
-      INSERT INTO task_history (user_id, task_id, action) VALUES (?, ?, 'create')
-    `).run(req.userId, resultTask.lastInsertRowid);
-    
-    res.status(201).json({ message: 'Task created', taskId: resultTask.lastInsertRowid });
+    try {
+      const resultTask = await db.execute({
+        sql: `
+          INSERT INTO tasks (user_id, title, tags, impact_score, urgency_score, learning_score, risk_score, energy_score, first_step)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        args: [
+          req.userId!,
+          title,
+          tags || '',
+          impact_score || 3,
+          urgency_score || 3,
+          learning_score || 3,
+          risk_score || 3,
+          energy_score || 3,
+          first_step || ''
+        ]
+      });
+      
+      const newTaskId = Number(resultTask.lastInsertRowid);
+      
+      await db.execute({
+        sql: `INSERT INTO task_history (user_id, task_id, action) VALUES (?, ?, 'create')`,
+        args: [req.userId!, newTaskId]
+      });
+      
+      res.status(201).json({ message: 'Task created', taskId: newTaskId });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error while creating task' });
+    }
   },
 ];
 
 export const getTasks = [
   authenticate,
-  (req: AuthRequest, res: Response) => {
-    const tasks = db.prepare(`
-      SELECT * FROM tasks WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC
-    `).all(req.userId);
-    
-    res.json({ tasks });
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const tasksResult = await db.execute({
+        sql: `SELECT * FROM tasks WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC`,
+        args: [req.userId!]
+      });
+      
+      res.json({ tasks: tasksResult.rows });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error while fetching tasks' });
+    }
   },
 ];
 
 // ── Update Task ──────────────────────────────────────────────────────────────
 export const updateTask = [
   authenticate,
-  (req: AuthRequest, res: Response) => {
+  async (req: AuthRequest, res: Response) => {
     const taskId = Number(req.params.id);
     if (!taskId) {
       return res.status(400).json({ error: 'Task ID required' });
@@ -77,157 +92,191 @@ export const updateTask = [
 
     const { title, tags, impact_score, urgency_score, learning_score, risk_score, energy_score, first_step } = result.data;
 
-    const existing = db.prepare('SELECT id FROM tasks WHERE id = ? AND user_id = ?').get(taskId, req.userId);
-    if (!existing) {
-      return res.status(404).json({ error: 'Task not found' });
+    try {
+      const existingResult = await db.execute({
+        sql: 'SELECT id FROM tasks WHERE id = ? AND user_id = ?',
+        args: [taskId, req.userId!]
+      });
+      
+      if (existingResult.rows.length === 0) {
+        return res.status(404).json({ error: 'Task not found' });
+      }
+
+      await db.execute({
+        sql: `
+          UPDATE tasks SET
+            title = ?,
+            tags = ?,
+            impact_score = ?,
+            urgency_score = ?,
+            learning_score = ?,
+            risk_score = ?,
+            energy_score = ?,
+            first_step = ?
+          WHERE id = ? AND user_id = ?
+        `,
+        args: [
+          title,
+          tags || '',
+          impact_score || 3,
+          urgency_score || 3,
+          learning_score || 3,
+          risk_score || 3,
+          energy_score || 3,
+          first_step || '',
+          taskId,
+          req.userId!
+        ]
+      });
+
+      await db.execute({
+        sql: `INSERT INTO task_history (user_id, task_id, action) VALUES (?, ?, 'edit')`,
+        args: [req.userId!, taskId]
+      });
+
+      res.json({ message: 'Task updated' });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error while updating task' });
     }
-
-    db.prepare(`
-      UPDATE tasks SET
-        title = ?,
-        tags = ?,
-        impact_score = ?,
-        urgency_score = ?,
-        learning_score = ?,
-        risk_score = ?,
-        energy_score = ?,
-        first_step = ?
-      WHERE id = ? AND user_id = ?
-    `).run(
-      title,
-      tags || '',
-      impact_score || 3,
-      urgency_score || 3,
-      learning_score || 3,
-      risk_score || 3,
-      energy_score || 3,
-      first_step || '',
-      taskId,
-      req.userId
-    );
-
-    db.prepare(`
-      INSERT INTO task_history (user_id, task_id, action) VALUES (?, ?, 'edit')
-    `).run(req.userId, taskId);
-
-    res.json({ message: 'Task updated' });
   },
 ];
 
 // ── Task History (completed & archived) ──────────────────────────────────────
 export const getTaskHistory = [
   authenticate,
-  (req: AuthRequest, res: Response) => {
-    const tasks = db.prepare(`
-      SELECT * FROM tasks 
-      WHERE user_id = ? AND status IN ('completed', 'archived') 
-      ORDER BY completed_at DESC, created_at DESC
-    `).all(req.userId);
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const tasksResult = await db.execute({
+        sql: `
+          SELECT * FROM tasks 
+          WHERE user_id = ? AND status IN ('completed', 'archived') 
+          ORDER BY completed_at DESC, created_at DESC
+        `,
+        args: [req.userId!]
+      });
 
-    res.json({ tasks });
+      res.json({ tasks: tasksResult.rows });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error while fetching history' });
+    }
   },
 ];
 
 // ── Recommendation with score breakdown ──────────────────────────────────────
 export const getRecommendation = [
   authenticate,
-  (req: AuthRequest, res: Response) => {
-    const weights = db.prepare(`
-      SELECT * FROM weights WHERE user_id = ?
-    `).get(req.userId) as {
-      impact_weight: number;
-      urgency_weight: number;
-      learning_weight: number;
-      risk_weight: number;
-      energy_weight: number;
-    } | undefined;
-    
-    const defaultWeights = {
-      impact_weight: 30,
-      urgency_weight: 20,
-      learning_weight: 15,
-      risk_weight: 15,
-      energy_weight: 20,
-    };
-    
-    const w = weights || defaultWeights;
-    const totalWeight = w.impact_weight + w.urgency_weight + w.learning_weight + w.risk_weight + w.energy_weight;
-    
-    const now = new Date().toISOString();
-    
-    const tasks = db.prepare(`
-      SELECT * FROM tasks 
-      WHERE user_id = ? 
-      AND status = 'active'
-      AND (snoozed_until IS NULL OR snoozed_until <= ?)
-      ORDER BY created_at DESC
-    `).all(req.userId, now) as Array<{
-      id: number;
-      title: string;
-      tags: string;
-      impact_score: number;
-      urgency_score: number;
-      learning_score: number;
-      risk_score: number;
-      energy_score: number;
-      first_step: string;
-    }>;
-    
-    if (tasks.length === 0) {
-      return res.json({ recommendation: null, message: 'No tasks available' });
-    }
-    
-    const scoredTasks = tasks.map((task) => {
-      const impactContribution = (task.impact_score * w.impact_weight) / totalWeight;
-      const urgencyContribution = (task.urgency_score * w.urgency_weight) / totalWeight;
-      const learningContribution = (task.learning_score * w.learning_weight) / totalWeight;
-      const riskContribution = (task.risk_score * w.risk_weight) / totalWeight;
-      const energyContribution = (task.energy_score * w.energy_weight) / totalWeight;
-
-      const totalScore = impactContribution + urgencyContribution + learningContribution + riskContribution + energyContribution;
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const weightsResult = await db.execute({
+        sql: `SELECT * FROM weights WHERE user_id = ?`,
+        args: [req.userId!]
+      });
       
-      return {
-        ...task,
-        totalScore,
-        breakdown: {
-          impact: { score: task.impact_score, weight: w.impact_weight, contribution: Math.round(impactContribution * 100) / 100 },
-          urgency: { score: task.urgency_score, weight: w.urgency_weight, contribution: Math.round(urgencyContribution * 100) / 100 },
-          learning: { score: task.learning_score, weight: w.learning_weight, contribution: Math.round(learningContribution * 100) / 100 },
-          risk: { score: task.risk_score, weight: w.risk_weight, contribution: Math.round(riskContribution * 100) / 100 },
-          energy: { score: task.energy_score, weight: w.energy_weight, contribution: Math.round(energyContribution * 100) / 100 },
-        },
+      const weights = weightsResult.rows[0] as unknown as {
+        impact_weight: number;
+        urgency_weight: number;
+        learning_weight: number;
+        risk_weight: number;
+        energy_weight: number;
+      } | undefined;
+      
+      const defaultWeights = {
+        impact_weight: 30,
+        urgency_weight: 20,
+        learning_weight: 15,
+        risk_weight: 15,
+        energy_weight: 20,
       };
-    });
-    
-    scoredTasks.sort((a, b) => b.totalScore - a.totalScore);
-    
-    const topTask = scoredTasks[0];
-    const reasons = [];
-    
-    if (topTask.impact_score >= 4) reasons.push('high impact');
-    if (topTask.urgency_score >= 4) reasons.push('time-sensitive');
-    if (topTask.learning_score >= 4) reasons.push('learning opportunity');
-    if (topTask.risk_score >= 4) reasons.push('reduces risk');
-    if (topTask.energy_score >= 4) reasons.push('you feel motivated');
-    
-    res.json({
-      recommendation: {
-        id: topTask.id,
-        title: topTask.title,
-        tags: topTask.tags,
-        first_step: topTask.first_step,
-        totalScore: Math.round(topTask.totalScore * 100) / 100,
-        reason: reasons.length > 0 ? reasons.join(', ') : 'best overall fit',
-        breakdown: topTask.breakdown,
-      },
-    });
+      
+      const w = weights || defaultWeights;
+      const totalWeight = w.impact_weight + w.urgency_weight + w.learning_weight + w.risk_weight + w.energy_weight;
+      
+      const now = new Date().toISOString();
+      
+      const tasksResult = await db.execute({
+        sql: `
+          SELECT * FROM tasks 
+          WHERE user_id = ? 
+          AND status = 'active'
+          AND (snoozed_until IS NULL OR snoozed_until <= ?)
+          ORDER BY created_at DESC
+        `,
+        args: [req.userId!, now]
+      });
+      
+      const tasks = tasksResult.rows as unknown as Array<{
+        id: number;
+        title: string;
+        tags: string;
+        impact_score: number;
+        urgency_score: number;
+        learning_score: number;
+        risk_score: number;
+        energy_score: number;
+        first_step: string;
+      }>;
+      
+      if (tasks.length === 0) {
+        return res.json({ recommendation: null, message: 'No tasks available' });
+      }
+      
+      const scoredTasks = tasks.map((task) => {
+        const impactContribution = (task.impact_score * w.impact_weight) / totalWeight;
+        const urgencyContribution = (task.urgency_score * w.urgency_weight) / totalWeight;
+        const learningContribution = (task.learning_score * w.learning_weight) / totalWeight;
+        const riskContribution = (task.risk_score * w.risk_weight) / totalWeight;
+        const energyContribution = (task.energy_score * w.energy_weight) / totalWeight;
+
+        const totalScore = impactContribution + urgencyContribution + learningContribution + riskContribution + energyContribution;
+        
+        return {
+          ...task,
+          totalScore,
+          breakdown: {
+            impact: { score: task.impact_score, weight: w.impact_weight, contribution: Math.round(impactContribution * 100) / 100 },
+            urgency: { score: task.urgency_score, weight: w.urgency_weight, contribution: Math.round(urgencyContribution * 100) / 100 },
+            learning: { score: task.learning_score, weight: w.learning_weight, contribution: Math.round(learningContribution * 100) / 100 },
+            risk: { score: task.risk_score, weight: w.risk_weight, contribution: Math.round(riskContribution * 100) / 100 },
+            energy: { score: task.energy_score, weight: w.energy_weight, contribution: Math.round(energyContribution * 100) / 100 },
+          },
+        };
+      });
+      
+      scoredTasks.sort((a, b) => b.totalScore - a.totalScore);
+      
+      const topTask = scoredTasks[0];
+      const reasons = [];
+      
+      if (topTask.impact_score >= 4) reasons.push('high impact');
+      if (topTask.urgency_score >= 4) reasons.push('time-sensitive');
+      if (topTask.learning_score >= 4) reasons.push('learning opportunity');
+      if (topTask.risk_score >= 4) reasons.push('reduces risk');
+      if (topTask.energy_score >= 4) reasons.push('you feel motivated');
+      
+      res.json({
+        recommendation: {
+          id: topTask.id,
+          title: topTask.title,
+          tags: topTask.tags,
+          first_step: topTask.first_step,
+          totalScore: Math.round(topTask.totalScore * 100) / 100,
+          reason: reasons.length > 0 ? reasons.join(', ') : 'best overall fit',
+          breakdown: topTask.breakdown,
+        },
+      });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error while getting recommendation' });
+    }
   },
 ];
 
 // ── Snooze with duration ─────────────────────────────────────────────────────
 export const snoozeTask = [
   authenticate,
-  (req: AuthRequest, res: Response) => {
+  async (req: AuthRequest, res: Response) => {
     const { id, duration } = req.body;
     
     if (!id) {
@@ -257,21 +306,28 @@ export const snoozeTask = [
 
     const snoozeUntil = new Date(Date.now() + snoozeMs).toISOString();
     
-    db.prepare(`
-      UPDATE tasks SET snoozed_until = ? WHERE id = ? AND user_id = ?
-    `).run(snoozeUntil, id, req.userId);
-    
-    db.prepare(`
-      INSERT INTO task_history (user_id, task_id, action) VALUES (?, ?, 'snooze')
-    `).run(req.userId, id);
-    
-    res.json({ message: `Task snoozed until ${label}` });
+    try {
+      await db.execute({
+        sql: `UPDATE tasks SET snoozed_until = ? WHERE id = ? AND user_id = ?`,
+        args: [snoozeUntil, id, req.userId!]
+      });
+      
+      await db.execute({
+        sql: `INSERT INTO task_history (user_id, task_id, action) VALUES (?, ?, 'snooze')`,
+        args: [req.userId!, id]
+      });
+      
+      res.json({ message: `Task snoozed until ${label}` });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error while snoozing task' });
+    }
   },
 ];
 
 export const completeTask = [
   authenticate,
-  (req: AuthRequest, res: Response) => {
+  async (req: AuthRequest, res: Response) => {
     const { id } = req.body;
     
     if (!id) {
@@ -280,155 +336,211 @@ export const completeTask = [
     
     const completedAt = new Date().toISOString();
     
-    db.prepare(`
-      UPDATE tasks SET status = 'completed', completed_at = ? WHERE id = ? AND user_id = ?
-    `).run(completedAt, id, req.userId);
-    
-    db.prepare(`
-      INSERT INTO task_history (user_id, task_id, action) VALUES (?, ?, 'complete')
-    `).run(req.userId, id);
-    
-    res.json({ message: 'Task completed' });
+    try {
+      await db.execute({
+        sql: `UPDATE tasks SET status = 'completed', completed_at = ? WHERE id = ? AND user_id = ?`,
+        args: [completedAt, id, req.userId!]
+      });
+      
+      await db.execute({
+        sql: `INSERT INTO task_history (user_id, task_id, action) VALUES (?, ?, 'complete')`,
+        args: [req.userId!, id]
+      });
+      
+      res.json({ message: 'Task completed' });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error while completing task' });
+    }
   },
 ];
 
 export const archiveTask = [
   authenticate,
-  (req: AuthRequest, res: Response) => {
+  async (req: AuthRequest, res: Response) => {
     const { id } = req.body;
     
     if (!id) {
       return res.status(400).json({ error: 'Task ID required' });
     }
     
-    db.prepare(`
-      UPDATE tasks SET status = 'archived' WHERE id = ? AND user_id = ?
-    `).run(id, req.userId);
-    
-    db.prepare(`
-      INSERT INTO task_history (user_id, task_id, action) VALUES (?, ?, 'archive')
-    `).run(req.userId, id);
-    
-    res.json({ message: 'Task archived' });
+    try {
+      await db.execute({
+        sql: `UPDATE tasks SET status = 'archived' WHERE id = ? AND user_id = ?`,
+        args: [id, req.userId!]
+      });
+      
+      await db.execute({
+        sql: `INSERT INTO task_history (user_id, task_id, action) VALUES (?, ?, 'archive')`,
+        args: [req.userId!, id]
+      });
+      
+      res.json({ message: 'Task archived' });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error while archiving task' });
+    }
   },
 ];
 
 export const getWeights = [
   authenticate,
-  (req: AuthRequest, res: Response) => {
-    const weights = db.prepare(`
-      SELECT * FROM weights WHERE user_id = ?
-    `).get(req.userId);
-    
-    res.json({ weights });
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const weightsResult = await db.execute({
+        sql: `SELECT * FROM weights WHERE user_id = ?`,
+        args: [req.userId!]
+      });
+      
+      res.json({ weights: weightsResult.rows[0] });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error while fetching weights' });
+    }
   },
 ];
 
 export const updateWeights = [
   authenticate,
-  (req: AuthRequest, res: Response) => {
+  async (req: AuthRequest, res: Response) => {
     const { impact_weight, urgency_weight, learning_weight, risk_weight, energy_weight } = req.body;
     
-    db.prepare(`
-      UPDATE weights SET 
-        impact_weight = ?,
-        urgency_weight = ?,
-        learning_weight = ?,
-        risk_weight = ?,
-        energy_weight = ?
-      WHERE user_id = ?
-    `).run(
-      impact_weight || 30,
-      urgency_weight || 20,
-      learning_weight || 15,
-      risk_weight || 15,
-      energy_weight || 20,
-      req.userId
-    );
-    
-    res.json({ message: 'Weights updated' });
+    try {
+      await db.execute({
+        sql: `
+          UPDATE weights SET 
+            impact_weight = ?,
+            urgency_weight = ?,
+            learning_weight = ?,
+            risk_weight = ?,
+            energy_weight = ?
+          WHERE user_id = ?
+        `,
+        args: [
+          impact_weight || 30,
+          urgency_weight || 20,
+          learning_weight || 15,
+          risk_weight || 15,
+          energy_weight || 20,
+          req.userId!
+        ]
+      });
+      
+      res.json({ message: 'Weights updated' });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error while updating weights' });
+    }
   },
 ];
 
 export const getWeeklyStats = [
   authenticate,
-  (req: AuthRequest, res: Response) => {
+  async (req: AuthRequest, res: Response) => {
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     
-    const completed = db.prepare(`
-      SELECT COUNT(*) as count FROM task_history 
-      WHERE user_id = ? AND action = 'complete' AND created_at >= ?
-    `).get(req.userId, weekAgo) as { count: number };
-    
-    const snoozed = db.prepare(`
-      SELECT COUNT(*) as count FROM task_history 
-      WHERE user_id = ? AND action = 'snooze' AND created_at >= ?
-    `).get(req.userId, weekAgo) as { count: number };
-    
-    const archived = db.prepare(`
-      SELECT COUNT(*) as count FROM task_history 
-      WHERE user_id = ? AND action = 'archive' AND created_at >= ?
-    `).get(req.userId, weekAgo) as { count: number };
-    
-    res.json({
-      stats: {
-        completed: completed.count,
-        snoozed: snoozed.count,
-        archived: archived.count,
-      },
-    });
+    try {
+      const completedResult = await db.execute({
+        sql: `SELECT COUNT(*) as count FROM task_history WHERE user_id = ? AND action = 'complete' AND created_at >= ?`,
+        args: [req.userId!, weekAgo]
+      });
+      
+      const snoozedResult = await db.execute({
+        sql: `SELECT COUNT(*) as count FROM task_history WHERE user_id = ? AND action = 'snooze' AND created_at >= ?`,
+        args: [req.userId!, weekAgo]
+      });
+      
+      const archivedResult = await db.execute({
+        sql: `SELECT COUNT(*) as count FROM task_history WHERE user_id = ? AND action = 'archive' AND created_at >= ?`,
+        args: [req.userId!, weekAgo]
+      });
+      
+      const completedCount = Number(completedResult.rows[0]?.count || 0);
+      const snoozedCount = Number(snoozedResult.rows[0]?.count || 0);
+      const archivedCount = Number(archivedResult.rows[0]?.count || 0);
+      
+      res.json({
+        stats: {
+          completed: completedCount,
+          snoozed: snoozedCount,
+          archived: archivedCount,
+        },
+      });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error while getting weekly stats' });
+    }
   },
 ];
 
 // ── Export data ───────────────────────────────────────────────────────────────
 export const exportData = [
   authenticate,
-  (req: AuthRequest, res: Response) => {
+  async (req: AuthRequest, res: Response) => {
     const format = (req.query.format as string) || 'json';
 
-    const tasks = db.prepare('SELECT * FROM tasks WHERE user_id = ?').all(req.userId) as Array<Record<string, unknown>>;
-    const weights = db.prepare('SELECT * FROM weights WHERE user_id = ?').get(req.userId);
-    const history = db.prepare(`
-      SELECT th.*, t.title as task_title FROM task_history th 
-      JOIN tasks t ON t.id = th.task_id 
-      WHERE th.user_id = ?
-      ORDER BY th.created_at DESC
-    `).all(req.userId);
+    try {
+      const tasksResult = await db.execute({
+        sql: 'SELECT * FROM tasks WHERE user_id = ?',
+        args: [req.userId!]
+      });
+      const tasks = tasksResult.rows as unknown as Array<Record<string, unknown>>;
+      
+      const weightsResult = await db.execute({
+        sql: 'SELECT * FROM weights WHERE user_id = ?',
+        args: [req.userId!]
+      });
+      const weights = weightsResult.rows[0];
+      
+      const historyResult = await db.execute({
+        sql: `
+          SELECT th.*, t.title as task_title FROM task_history th 
+          JOIN tasks t ON t.id = th.task_id 
+          WHERE th.user_id = ?
+          ORDER BY th.created_at DESC
+        `,
+        args: [req.userId!]
+      });
+      const history = historyResult.rows;
 
-    if (format === 'csv') {
-      if (tasks.length === 0) {
+      if (format === 'csv') {
+        if (tasks.length === 0) {
+          res.setHeader('Content-Type', 'text/csv');
+          res.setHeader('Content-Disposition', 'attachment; filename="decision-prioritiser-export.csv"');
+          return res.send('No tasks to export');
+        }
+
+        const headers = Object.keys(tasks[0]);
+        const csvRows = [
+          headers.join(','),
+          ...tasks.map(task =>
+            headers.map(h => {
+              const val = String(task[h] ?? '');
+              return val.includes(',') || val.includes('"') ? `"${val.replace(/"/g, '""')}"` : val;
+            }).join(',')
+          ),
+        ];
+
         res.setHeader('Content-Type', 'text/csv');
         res.setHeader('Content-Disposition', 'attachment; filename="decision-prioritiser-export.csv"');
-        return res.send('No tasks to export');
+        return res.send(csvRows.join('\n'));
       }
 
-      const headers = Object.keys(tasks[0]);
-      const csvRows = [
-        headers.join(','),
-        ...tasks.map(task =>
-          headers.map(h => {
-            const val = String(task[h] ?? '');
-            return val.includes(',') || val.includes('"') ? `"${val.replace(/"/g, '""')}"` : val;
-          }).join(',')
-        ),
-      ];
-
-      res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', 'attachment; filename="decision-prioritiser-export.csv"');
-      return res.send(csvRows.join('\n'));
+      // JSON format
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', 'attachment; filename="decision-prioritiser-export.json"');
+      res.json({ tasks, weights, history, exportedAt: new Date().toISOString() });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error while exporting data' });
     }
-
-    // JSON format
-    res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Content-Disposition', 'attachment; filename="decision-prioritiser-export.json"');
-    res.json({ tasks, weights, history, exportedAt: new Date().toISOString() });
   },
 ];
 
 // ── Weekly Review Stats ──────────────────────────────────────────────────────
 export const getWeeklyReview = [
   authenticate,
-  (req: AuthRequest, res: Response) => {
+  async (req: AuthRequest, res: Response) => {
     const thisWeekStart = new Date();
     thisWeekStart.setDate(thisWeekStart.getDate() - thisWeekStart.getDay());
     thisWeekStart.setHours(0, 0, 0, 0);
@@ -439,143 +551,179 @@ export const getWeeklyReview = [
     const thisWeekISO = thisWeekStart.toISOString();
     const lastWeekISO = lastWeekStart.toISOString();
 
-    const thisWeekCompleted = db.prepare(`
-      SELECT COUNT(*) as count FROM task_history 
-      WHERE user_id = ? AND action = 'complete' AND created_at >= ?
-    `).get(req.userId, thisWeekISO) as { count: number };
+    try {
+      const thisWeekCompletedResult = await db.execute({
+        sql: `SELECT COUNT(*) as count FROM task_history WHERE user_id = ? AND action = 'complete' AND created_at >= ?`,
+        args: [req.userId!, thisWeekISO]
+      });
 
-    const lastWeekCompleted = db.prepare(`
-      SELECT COUNT(*) as count FROM task_history 
-      WHERE user_id = ? AND action = 'complete' AND created_at >= ? AND created_at < ?
-    `).get(req.userId, lastWeekISO, thisWeekISO) as { count: number };
+      const lastWeekCompletedResult = await db.execute({
+        sql: `SELECT COUNT(*) as count FROM task_history WHERE user_id = ? AND action = 'complete' AND created_at >= ? AND created_at < ?`,
+        args: [req.userId!, lastWeekISO, thisWeekISO]
+      });
 
-    // Get dimension averages for completed tasks this week
-    const completedTasksThisWeek = db.prepare(`
-      SELECT t.impact_score, t.urgency_score, t.learning_score, t.risk_score, t.energy_score
-      FROM tasks t
-      JOIN task_history th ON t.id = th.task_id
-      WHERE th.user_id = ? AND th.action = 'complete' AND th.created_at >= ?
-    `).all(req.userId, thisWeekISO) as Array<{
-      impact_score: number;
-      urgency_score: number;
-      learning_score: number;
-      risk_score: number;
-      energy_score: number;
-    }>;
+      const thisWeekCompletedCount = Number(thisWeekCompletedResult.rows[0]?.count || 0);
+      const lastWeekCompletedCount = Number(lastWeekCompletedResult.rows[0]?.count || 0);
 
-    const dimensionAverages = {
-      impact: 0,
-      urgency: 0,
-      learning: 0,
-      risk: 0,
-      energy: 0,
-    };
+      // Get dimension averages for completed tasks this week
+      const completedTasksThisWeekResult = await db.execute({
+        sql: `
+          SELECT t.impact_score, t.urgency_score, t.learning_score, t.risk_score, t.energy_score
+          FROM tasks t
+          JOIN task_history th ON t.id = th.task_id
+          WHERE th.user_id = ? AND th.action = 'complete' AND th.created_at >= ?
+        `,
+        args: [req.userId!, thisWeekISO]
+      });
+      
+      const completedTasksThisWeek = completedTasksThisWeekResult.rows as unknown as Array<{
+        impact_score: number;
+        urgency_score: number;
+        learning_score: number;
+        risk_score: number;
+        energy_score: number;
+      }>;
 
-    if (completedTasksThisWeek.length > 0) {
-      const n = completedTasksThisWeek.length;
-      dimensionAverages.impact = Math.round(completedTasksThisWeek.reduce((s, t) => s + t.impact_score, 0) / n * 10) / 10;
-      dimensionAverages.urgency = Math.round(completedTasksThisWeek.reduce((s, t) => s + t.urgency_score, 0) / n * 10) / 10;
-      dimensionAverages.learning = Math.round(completedTasksThisWeek.reduce((s, t) => s + t.learning_score, 0) / n * 10) / 10;
-      dimensionAverages.risk = Math.round(completedTasksThisWeek.reduce((s, t) => s + t.risk_score, 0) / n * 10) / 10;
-      dimensionAverages.energy = Math.round(completedTasksThisWeek.reduce((s, t) => s + t.energy_score, 0) / n * 10) / 10;
+      const dimensionAverages = {
+        impact: 0,
+        urgency: 0,
+        learning: 0,
+        risk: 0,
+        energy: 0,
+      };
+
+      if (completedTasksThisWeek.length > 0) {
+        const n = completedTasksThisWeek.length;
+        dimensionAverages.impact = Math.round(completedTasksThisWeek.reduce((s, t) => s + t.impact_score, 0) / n * 10) / 10;
+        dimensionAverages.urgency = Math.round(completedTasksThisWeek.reduce((s, t) => s + t.urgency_score, 0) / n * 10) / 10;
+        dimensionAverages.learning = Math.round(completedTasksThisWeek.reduce((s, t) => s + t.learning_score, 0) / n * 10) / 10;
+        dimensionAverages.risk = Math.round(completedTasksThisWeek.reduce((s, t) => s + t.risk_score, 0) / n * 10) / 10;
+        dimensionAverages.energy = Math.round(completedTasksThisWeek.reduce((s, t) => s + t.energy_score, 0) / n * 10) / 10;
+      }
+
+      // Get current weights
+      const weightsResult = await db.execute({
+        sql: 'SELECT * FROM weights WHERE user_id = ?',
+        args: [req.userId!]
+      });
+      const weights = weightsResult.rows[0];
+
+      res.json({
+        review: {
+          thisWeekCompleted: thisWeekCompletedCount,
+          lastWeekCompleted: lastWeekCompletedCount,
+          dimensionAverages,
+          currentWeights: weights || { impact_weight: 30, urgency_weight: 20, learning_weight: 15, risk_weight: 15, energy_weight: 20 },
+        },
+      });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error while generating weekly review' });
     }
-
-    // Get current weights
-    const weights = db.prepare('SELECT * FROM weights WHERE user_id = ?').get(req.userId) as {
-      impact_weight: number;
-      urgency_weight: number;
-      learning_weight: number;
-      risk_weight: number;
-      energy_weight: number;
-    } | undefined;
-
-    res.json({
-      review: {
-        thisWeekCompleted: thisWeekCompleted.count,
-        lastWeekCompleted: lastWeekCompleted.count,
-        dimensionAverages,
-        currentWeights: weights || { impact_weight: 30, urgency_weight: 20, learning_weight: 15, risk_weight: 15, energy_weight: 20 },
-      },
-    });
   },
 ];
 
 // ── Tag Management ───────────────────────────────────────────────────────────
 export const getTags = [
   authenticate,
-  (req: AuthRequest, res: Response) => {
-    const tasks = db.prepare(`
-      SELECT tags FROM tasks WHERE user_id = ? AND status = 'active'
-    `).all(req.userId) as Array<{ tags: string }>;
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const tasksResult = await db.execute({
+        sql: `SELECT tags FROM tasks WHERE user_id = ? AND status = 'active'`,
+        args: [req.userId!]
+      });
+      const tasks = tasksResult.rows as unknown as Array<{ tags: string }>;
 
-    const tagCounts: Record<string, number> = {};
-    tasks.forEach(task => {
-      if (task.tags) {
-        task.tags.split(',').map(t => t.trim()).filter(Boolean).forEach(tag => {
-          tagCounts[tag] = (tagCounts[tag] || 0) + 1;
-        });
-      }
-    });
+      const tagCounts: Record<string, number> = {};
+      tasks.forEach(task => {
+        if (task.tags) {
+          task.tags.split(',').map(t => t.trim()).filter(Boolean).forEach(tag => {
+            tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+          });
+        }
+      });
 
-    const tagList = Object.entries(tagCounts).map(([name, count]) => ({ name, count }));
-    tagList.sort((a, b) => b.count - a.count);
+      const tagList = Object.entries(tagCounts).map(([name, count]) => ({ name, count }));
+      tagList.sort((a, b) => b.count - a.count);
 
-    res.json({ tags: tagList });
+      res.json({ tags: tagList });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error while getting tags' });
+    }
   },
 ];
 
 export const renameTag = [
   authenticate,
-  (req: AuthRequest, res: Response) => {
+  async (req: AuthRequest, res: Response) => {
     const { oldName, newName } = req.body;
 
     if (!oldName || !newName) {
       return res.status(400).json({ error: 'Both oldName and newName are required' });
     }
 
-    const tasks = db.prepare(`
-      SELECT id, tags FROM tasks WHERE user_id = ? AND tags LIKE ?
-    `).all(req.userId, `%${oldName}%`) as Array<{ id: number; tags: string }>;
+    try {
+      const tasksResult = await db.execute({
+        sql: `SELECT id, tags FROM tasks WHERE user_id = ? AND tags LIKE ?`,
+        args: [req.userId!, `%${oldName}%`]
+      });
+      const tasks = tasksResult.rows as unknown as Array<{ id: number; tags: string }>;
 
-    const updateStmt = db.prepare('UPDATE tasks SET tags = ? WHERE id = ?');
+      for (const task of tasks) {
+        const updatedTags = task.tags
+          .split(',')
+          .map(t => t.trim())
+          .map(t => (t === oldName ? newName.trim() : t))
+          .join(', ');
+        
+        await db.execute({
+          sql: 'UPDATE tasks SET tags = ? WHERE id = ?',
+          args: [updatedTags, task.id]
+        });
+      }
 
-    tasks.forEach(task => {
-      const updatedTags = task.tags
-        .split(',')
-        .map(t => t.trim())
-        .map(t => (t === oldName ? newName.trim() : t))
-        .join(', ');
-      updateStmt.run(updatedTags, task.id);
-    });
-
-    res.json({ message: `Tag renamed from "${oldName}" to "${newName}"`, affected: tasks.length });
+      res.json({ message: `Tag renamed from "${oldName}" to "${newName}"`, affected: tasks.length });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error while renaming tag' });
+    }
   },
 ];
 
 export const deleteTag = [
   authenticate,
-  (req: AuthRequest, res: Response) => {
+  async (req: AuthRequest, res: Response) => {
     const { name } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: 'Tag name is required' });
     }
 
-    const tasks = db.prepare(`
-      SELECT id, tags FROM tasks WHERE user_id = ? AND tags LIKE ?
-    `).all(req.userId, `%${name}%`) as Array<{ id: number; tags: string }>;
+    try {
+      const tasksResult = await db.execute({
+        sql: `SELECT id, tags FROM tasks WHERE user_id = ? AND tags LIKE ?`,
+        args: [req.userId!, `%${name}%`]
+      });
+      const tasks = tasksResult.rows as unknown as Array<{ id: number; tags: string }>;
 
-    const updateStmt = db.prepare('UPDATE tasks SET tags = ? WHERE id = ?');
+      for (const task of tasks) {
+        const updatedTags = task.tags
+          .split(',')
+          .map(t => t.trim())
+          .filter(t => t !== name)
+          .join(', ');
+          
+        await db.execute({
+          sql: 'UPDATE tasks SET tags = ? WHERE id = ?',
+          args: [updatedTags, task.id]
+        });
+      }
 
-    tasks.forEach(task => {
-      const updatedTags = task.tags
-        .split(',')
-        .map(t => t.trim())
-        .filter(t => t !== name)
-        .join(', ');
-      updateStmt.run(updatedTags, task.id);
-    });
-
-    res.json({ message: `Tag "${name}" deleted`, affected: tasks.length });
+      res.json({ message: `Tag "${name}" deleted`, affected: tasks.length });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error while deleting tag' });
+    }
   },
 ];

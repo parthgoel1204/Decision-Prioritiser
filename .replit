@@ -1,7 +1,0 @@
-run = "cd server && npm install && npm run build && npm run start"
-[nix]
-channel = "stable-23_11"
-
-[env]
-# We tell Replit to run from the server directory
-NODE_ENV = "production"
