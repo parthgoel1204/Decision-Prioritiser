@@ -1,16 +1,20 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Slider } from '@/components/ui/slider';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
+import { Settings, Palette, Download, RotateCcw, Save, Moon, Sun, FileJson, FileSpreadsheet } from 'lucide-react';
+import { toast } from 'sonner';
 
-interface SettingsViewProps {
-  onWeightsUpdated: () => void;
-}
+interface SettingsViewProps { onWeightsUpdated: () => void; }
 
 interface Weights {
-  impact_weight: number;
-  urgency_weight: number;
-  learning_weight: number;
-  risk_weight: number;
-  energy_weight: number;
+  impact_weight: number; urgency_weight: number; learning_weight: number;
+  risk_weight: number; energy_weight: number;
 }
 
 const dimensionLabels: Record<string, { label: string; emoji: string; description: string }> = {
@@ -23,14 +27,9 @@ const dimensionLabels: Record<string, { label: string; emoji: string; descriptio
 
 export default function SettingsView({ onWeightsUpdated }: SettingsViewProps) {
   const [weights, setWeights] = useState<Weights>({
-    impact_weight: 30,
-    urgency_weight: 20,
-    learning_weight: 15,
-    risk_weight: 15,
-    energy_weight: 20,
+    impact_weight: 30, urgency_weight: 20, learning_weight: 15, risk_weight: 15, energy_weight: 20,
   });
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [darkMode, setDarkMode] = useState(() => document.documentElement.classList.contains('dark'));
   const [exporting, setExporting] = useState(false);
 
@@ -39,52 +38,37 @@ export default function SettingsView({ onWeightsUpdated }: SettingsViewProps) {
       const res = await axios.get('/api/weights');
       if (res.data.weights) {
         setWeights({
-          impact_weight: res.data.weights.impact_weight,
-          urgency_weight: res.data.weights.urgency_weight,
-          learning_weight: res.data.weights.learning_weight,
-          risk_weight: res.data.weights.risk_weight,
+          impact_weight: res.data.weights.impact_weight, urgency_weight: res.data.weights.urgency_weight,
+          learning_weight: res.data.weights.learning_weight, risk_weight: res.data.weights.risk_weight,
           energy_weight: res.data.weights.energy_weight,
         });
       }
-    } catch (err) {
-      console.error(err);
-    }
+    } catch (err) { console.error(err); }
   }, []);
 
-  useEffect(() => {
-    fetchWeights();
-  }, [fetchWeights]);
+  useEffect(() => { fetchWeights(); }, [fetchWeights]);
 
   const totalWeight = Object.values(weights).reduce((a, b) => a + b, 0);
 
   const handleWeightChange = (key: keyof Weights, value: number) => {
     setWeights((prev) => ({ ...prev, [key]: value }));
-    setSaved(false);
   };
 
   const handleSave = async () => {
     setSaving(true);
     try {
       await axios.post('/api/weights', weights);
-      setSaved(true);
+      toast.success('Weights saved successfully');
       onWeightsUpdated();
-      setTimeout(() => setSaved(false), 2000);
     } catch (err) {
       console.error(err);
-    } finally {
-      setSaving(false);
-    }
+      toast.error('Failed to save weights');
+    } finally { setSaving(false); }
   };
 
   const handleReset = () => {
-    setWeights({
-      impact_weight: 30,
-      urgency_weight: 20,
-      learning_weight: 15,
-      risk_weight: 15,
-      energy_weight: 20,
-    });
-    setSaved(false);
+    setWeights({ impact_weight: 30, urgency_weight: 20, learning_weight: 15, risk_weight: 15, energy_weight: 20 });
+    toast.info('Weights reset to defaults (save to apply)');
   };
 
   const toggleDarkMode = () => {
@@ -92,166 +76,107 @@ export default function SettingsView({ onWeightsUpdated }: SettingsViewProps) {
     setDarkMode(newMode);
     document.documentElement.classList.toggle('dark', newMode);
     localStorage.setItem('theme', newMode ? 'dark' : 'light');
+    toast.success(newMode ? 'Dark mode enabled' : 'Light mode enabled');
   };
 
   const handleExport = async (format: 'json' | 'csv') => {
     setExporting(true);
     try {
       const res = await axios.get(`/api/export?format=${format}`, { responseType: 'blob' });
-      const blob = new Blob([res.data], {
-        type: format === 'csv' ? 'text/csv' : 'application/json',
-      });
+      const blob = new Blob([res.data], { type: format === 'csv' ? 'text/csv' : 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = `decision-prioritiser-export.${format}`;
       document.body.appendChild(a);
       a.click();
-      
-      setTimeout(() => {
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      }, 500);
+      setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 500);
+      toast.success(`Exported as ${format.toUpperCase()}`);
     } catch (err) {
       console.error(err);
-    } finally {
-      setExporting(false);
-    }
+      toast.error('Export failed');
+    } finally { setExporting(false); }
   };
 
   return (
     <div className="space-y-6">
       {/* Weight Customisation */}
-      <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-xl">⚙️</span>
-          <h2 className="text-lg font-semibold text-foreground">Recommendation Weights</h2>
-        </div>
-        <p className="text-sm text-muted-foreground mb-6">
-          Adjust how much each dimension influences your task recommendations. Higher weight = more influence.
-        </p>
-
-        <div className="space-y-5">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Settings className="h-5 w-5" /> Recommendation Weights</CardTitle>
+          <CardDescription>Adjust how much each dimension influences your task recommendations.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
           {(Object.keys(dimensionLabels) as (keyof Weights)[]).map((key) => {
             const info = dimensionLabels[key];
             const value = weights[key];
             const percentage = totalWeight > 0 ? Math.round((value / totalWeight) * 100) : 0;
-
             return (
-              <div key={key}>
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm">{info.emoji}</span>
-                    <span className="text-sm font-medium text-foreground">{info.label}</span>
-                  </div>
+              <div key={key} className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="flex items-center gap-2 text-sm">
+                    <span>{info.emoji}</span> {info.label}
+                  </Label>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground">{percentage}%</span>
-                    <span className="text-sm font-bold text-foreground bg-accent px-2 py-0.5 rounded-md min-w-[2rem] text-center">
-                      {value}
-                    </span>
+                    <Badge variant="secondary" className="font-mono min-w-[2.5rem] justify-center">{value}</Badge>
                   </div>
                 </div>
-                <p className="text-xs text-muted-foreground mb-2">{info.description}</p>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={value}
-                  onChange={(e) => handleWeightChange(key, Number(e.target.value))}
-                  className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-primary"
-                />
+                <p className="text-xs text-muted-foreground">{info.description}</p>
+                <Slider min={0} max={100} step={1} value={[value]} onValueChange={([v]) => handleWeightChange(key, v)} />
               </div>
             );
           })}
-        </div>
 
-        <div className="flex items-center justify-between mt-6 pt-4 border-t border-border">
-          <span className="text-xs text-muted-foreground">
-            Total: {totalWeight} {totalWeight !== 100 && '(percentages auto-adjust)'}
-          </span>
-          <div className="flex gap-2">
-            <button
-              onClick={handleReset}
-              className="px-4 py-2 text-xs font-medium rounded-lg border border-border
-                         text-muted-foreground hover:bg-accent transition-all"
-            >
-              Reset Defaults
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="px-5 py-2 text-xs font-medium rounded-lg bg-primary text-primary-foreground
-                         hover:opacity-90 transition-all active:scale-[0.97] disabled:opacity-50
-                         hover:shadow-lg hover:shadow-primary/25"
-            >
-              {saving ? 'Saving...' : saved ? '✓ Saved!' : 'Save Weights'}
-            </button>
-          </div>
-        </div>
-      </div>
+          <Separator />
 
-      {/* Appearance */}
-      <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-xl">🎨</span>
-          <h2 className="text-lg font-semibold text-foreground">Appearance</h2>
-        </div>
-        <p className="text-sm text-muted-foreground mb-5">Customize how the app looks.</p>
-
-        <div className="flex items-center justify-between p-4 rounded-xl border border-border hover:bg-accent/50 transition-colors">
-          <div className="flex items-center gap-3">
-            <span className="text-2xl">{darkMode ? '🌙' : '☀️'}</span>
-            <div>
-              <div className="text-sm font-medium text-foreground">{darkMode ? 'Dark Mode' : 'Light Mode'}</div>
-              <div className="text-xs text-muted-foreground">
-                {darkMode ? 'Easy on the eyes' : 'Bright and clear'}
-              </div>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">Total: {totalWeight}</span>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={handleReset}><RotateCcw className="h-3.5 w-3.5 mr-1.5" /> Reset</Button>
+              <Button size="sm" onClick={handleSave} disabled={saving}><Save className="h-3.5 w-3.5 mr-1.5" /> {saving ? 'Saving…' : 'Save'}</Button>
             </div>
           </div>
-          <button
-            onClick={toggleDarkMode}
-            className={`relative w-12 h-6 rounded-full transition-colors duration-300 ${
-              darkMode ? 'bg-primary' : 'bg-border'
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform duration-300 ${
-                darkMode ? 'translate-x-6' : ''
-              }`}
-            />
-          </button>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
+
+      {/* Appearance */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Palette className="h-5 w-5" /> Appearance</CardTitle>
+          <CardDescription>Customize how the app looks.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between p-4 rounded-lg border">
+            <div className="flex items-center gap-3">
+              {darkMode ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
+              <div>
+                <div className="text-sm font-medium">{darkMode ? 'Dark Mode' : 'Light Mode'}</div>
+                <div className="text-xs text-muted-foreground">{darkMode ? 'Easy on the eyes' : 'Bright and clear'}</div>
+              </div>
+            </div>
+            <Switch checked={darkMode} onCheckedChange={toggleDarkMode} />
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Export */}
-      <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-xl">📦</span>
-          <h2 className="text-lg font-semibold text-foreground">Export Data</h2>
-        </div>
-        <p className="text-sm text-muted-foreground mb-5">
-          Download all your tasks, history, and settings. Your data belongs to you.
-        </p>
-
-        <div className="flex gap-3">
-          <button
-            onClick={() => handleExport('json')}
-            disabled={exporting}
-            className="flex-1 py-3 text-sm font-medium rounded-xl border border-border
-                       hover:bg-accent transition-all active:scale-[0.97] disabled:opacity-50"
-          >
-            📄 Export JSON
-          </button>
-          <button
-            onClick={() => handleExport('csv')}
-            disabled={exporting}
-            className="flex-1 py-3 text-sm font-medium rounded-xl border border-border
-                       hover:bg-accent transition-all active:scale-[0.97] disabled:opacity-50"
-          >
-            📊 Export CSV
-          </button>
-        </div>
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Download className="h-5 w-5" /> Export Data</CardTitle>
+          <CardDescription>Download all your tasks, history, and settings. Your data belongs to you.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-3">
+            <Button variant="outline" className="flex-1" onClick={() => handleExport('json')} disabled={exporting}>
+              <FileJson className="h-4 w-4 mr-2" /> Export JSON
+            </Button>
+            <Button variant="outline" className="flex-1" onClick={() => handleExport('csv')} disabled={exporting}>
+              <FileSpreadsheet className="h-4 w-4 mr-2" /> Export CSV
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

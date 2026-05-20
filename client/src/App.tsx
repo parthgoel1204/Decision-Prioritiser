@@ -1,6 +1,14 @@
 import { useState, useEffect, createContext, useContext, ReactNode } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import axios from 'axios';
+import { Toaster } from '@/components/ui/sonner';
+import { TooltipProvider } from '@/components/ui/tooltip';
+
+import Login from './pages/Login';
+import Signup from './pages/Signup';
+import Dashboard from './pages/Dashboard';
+
+// ── Auth Context ─────────────────────────────────────────────────────────────
 
 interface AuthContextType {
   token: string | null;
@@ -56,27 +64,28 @@ const ProtectedRoute = ({ children }: { children: ReactNode }) => {
   return token ? <>{children}</> : <Navigate to="/login" />;
 };
 
-import Login from './pages/Login';
-import Signup from './pages/Signup';
-import Dashboard from './pages/Dashboard';
+// ── App ──────────────────────────────────────────────────────────────────────
 
 function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/signup" element={<Signup />} />
-          <Route
-            path="/*"
-            element={
-              <ProtectedRoute>
-                <Dashboard />
-              </ProtectedRoute>
-            }
-          />
-        </Routes>
-      </BrowserRouter>
+      <TooltipProvider delayDuration={300}>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/signup" element={<Signup />} />
+            <Route
+              path="/*"
+              element={
+                <ProtectedRoute>
+                  <Dashboard />
+                </ProtectedRoute>
+              }
+            />
+          </Routes>
+        </BrowserRouter>
+        <Toaster richColors position="bottom-right" />
+      </TooltipProvider>
     </AuthProvider>
   );
 }

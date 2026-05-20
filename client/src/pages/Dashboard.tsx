@@ -1,42 +1,63 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { useAuth } from '../App';
-import EmptyState from '../components/EmptyState';
-import ScoreBreakdown from '../components/ScoreBreakdown';
-import SnoozeModal from '../components/SnoozeModal';
-import EditTaskModal from '../components/EditTaskModal';
-import SettingsView from '../components/SettingsView';
-import HistoryView from '../components/HistoryView';
-import WeeklyReviewModal from '../components/WeeklyReviewModal';
+import { useAuth } from '@/App';
+import { toast } from 'sonner';
+
+// shadcn
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Separator } from '@/components/ui/separator';
+import { Slider } from '@/components/ui/slider';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+
+// Lucide icons
+import {
+  Target, Plus, ListTodo, History, Settings, LogOut, BarChart3, Search,
+  Play, Pause, RotateCcw, Zap, Clock, CheckCircle2, Archive, Pencil,
+  Moon, AlarmClock,
+} from 'lucide-react';
+
+// Custom components
+import EmptyState from '@/components/EmptyState';
+import ScoreBreakdown from '@/components/ScoreBreakdown';
+import SnoozeModal from '@/components/SnoozeModal';
+import EditTaskModal from '@/components/EditTaskModal';
+import SettingsView from '@/components/SettingsView';
+import HistoryView from '@/components/HistoryView';
+import WeeklyReviewModal from '@/components/WeeklyReviewModal';
+
+// ── Types ────────────────────────────────────────────────────────────────────
 
 interface Task {
-  id: number;
-  title: string;
-  tags: string;
-  impact_score: number;
-  urgency_score: number;
-  learning_score: number;
-  risk_score: number;
-  energy_score: number;
-  first_step: string;
+  id: number; title: string; tags: string;
+  impact_score: number; urgency_score: number; learning_score: number;
+  risk_score: number; energy_score: number; first_step: string;
 }
 
 interface BreakdownItem { score: number; weight: number; contribution: number; }
 interface Recommendation {
-  id: number;
-  title: string;
-  tags: string;
-  reason: string;
-  first_step: string;
+  id: number; title: string; tags: string; reason: string; first_step: string;
   totalScore: number;
-  breakdown: {
-    impact: BreakdownItem; urgency: BreakdownItem; learning: BreakdownItem;
-    risk: BreakdownItem; energy: BreakdownItem;
-  };
+  breakdown: { impact: BreakdownItem; urgency: BreakdownItem; learning: BreakdownItem; risk: BreakdownItem; energy: BreakdownItem; };
 }
 
 type View = 'recommend' | 'add' | 'list' | 'history' | 'settings' | 'timer';
+
+const scoreDimensions = [
+  { key: 'impact_score' as const, label: 'Impact', emoji: '💥' },
+  { key: 'urgency_score' as const, label: 'Urgency', emoji: '⏰' },
+  { key: 'learning_score' as const, label: 'Learning', emoji: '📚' },
+  { key: 'risk_score' as const, label: 'Risk Reduction', emoji: '🛡️' },
+  { key: 'energy_score' as const, label: 'Energy', emoji: '⚡' },
+];
+
+// ── Dashboard ────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
   const [view, setView] = useState<View>('recommend');
@@ -47,7 +68,7 @@ export default function Dashboard() {
   const [timerTask, setTimerTask] = useState('');
   const [stats, setStats] = useState({ completed: 0, snoozed: 0, archived: 0 });
   const [searchQuery, setSearchQuery] = useState('');
-  const [tagFilter, setTagFilter] = useState('');
+  const [tagFilter, setTagFilter] = useState('all');
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   const [editTask, setEditTask] = useState<Task | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -59,31 +80,36 @@ export default function Dashboard() {
   const { logout } = useAuth();
   const navigate = useNavigate();
 
+  // ── Data fetching ────────────────────────────────────────────────────────
+
   const fetchTasks = useCallback(async () => {
-    try { const res = await axios.get('/api/tasks'); setTasks(res.data.tasks); } catch (err) { console.error(err); }
+    try { setTasks((await axios.get('/api/tasks')).data.tasks); } catch (e) { console.error(e); }
   }, []);
   const fetchRecommendation = useCallback(async () => {
-    try { const res = await axios.get('/api/recommendation'); setRecommendation(res.data.recommendation); } catch (err) { console.error(err); }
+    try { setRecommendation((await axios.get('/api/recommendation')).data.recommendation); } catch (e) { console.error(e); }
   }, []);
   const fetchStats = useCallback(async () => {
-    try { const res = await axios.get('/api/stats'); setStats(res.data.stats); } catch (err) { console.error(err); }
+    try { setStats((await axios.get('/api/stats')).data.stats); } catch (e) { console.error(e); }
   }, []);
 
   useEffect(() => { fetchTasks(); fetchRecommendation(); fetchStats(); }, [fetchTasks, fetchRecommendation, fetchStats]);
 
-  // Timer
+  // ── Timer ────────────────────────────────────────────────────────────────
+
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (timerRunning && timerSeconds > 0) {
       interval = setInterval(() => setTimerSeconds((s) => s - 1), 1000);
     } else if (timerSeconds === 0) {
       setTimerRunning(false);
+      toast.success('Focus session complete! Great work 🎉');
       new Audio('/notifications.mp3')?.play()?.catch(() => {});
     }
     return () => clearInterval(interval);
   }, [timerRunning, timerSeconds]);
 
-  // Keyboard shortcuts
+  // ── Keyboard shortcuts ───────────────────────────────────────────────────
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
@@ -96,250 +122,302 @@ export default function Dashboard() {
     return () => window.removeEventListener('keydown', handler);
   }, [view]);
 
+  // ── Handlers ─────────────────────────────────────────────────────────────
+
   const handleAddTask = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       await axios.post('/api/tasks', newTask);
       setNewTask({ title: '', tags: '', impact_score: 3, urgency_score: 3, learning_score: 3, risk_score: 3, energy_score: 3, first_step: '' });
-      fetchTasks(); fetchRecommendation(); setView('recommend');
-    } catch (err) { console.error(err); }
+      fetchTasks(); fetchRecommendation();
+      toast.success('Task added!');
+      setView('recommend');
+    } catch { toast.error('Failed to add task'); }
   };
 
   const handleAccept = () => {
-    if (recommendation) { setTimerTask(recommendation.title); setTimerSeconds(25 * 60); setView('timer'); setTimerRunning(true); }
+    if (!recommendation) return;
+    setTimerTask(recommendation.title); setTimerSeconds(25 * 60); setView('timer'); setTimerRunning(true);
+    toast('Focus mode started', { description: recommendation.title });
   };
+
   const handleSnooze = async (duration: string) => {
     if (!recommendation) return;
-    try { await axios.post('/api/snooze', { id: recommendation.id, duration }); fetchRecommendation(); } catch (err) { console.error(err); }
+    try { await axios.post('/api/snooze', { id: recommendation.id, duration }); fetchRecommendation(); toast.info('Task snoozed'); } catch { toast.error('Failed to snooze'); }
   };
+
   const handleComplete = async () => {
     if (!recommendation) return;
-    try { await axios.post('/api/complete', { id: recommendation.id }); fetchRecommendation(); fetchTasks(); fetchStats(); } catch (err) { console.error(err); }
+    try { await axios.post('/api/complete', { id: recommendation.id }); fetchRecommendation(); fetchTasks(); fetchStats(); toast.success('Task completed! 🎉'); } catch { toast.error('Failed to complete'); }
   };
+
   const handleArchive = async (id: number) => {
-    try { await axios.post('/api/archive', { id }); fetchTasks(); fetchRecommendation(); fetchStats(); } catch (err) { console.error(err); }
+    try { await axios.post('/api/archive', { id }); fetchTasks(); fetchRecommendation(); fetchStats(); toast.info('Task archived'); } catch { toast.error('Failed to archive'); }
   };
+
   const handleEditSave = async (task: Task) => {
-    try { await axios.put(`/api/tasks/${task.id}`, task); setEditTask(null); fetchTasks(); fetchRecommendation(); } catch (err) { console.error(err); }
+    try { await axios.put(`/api/tasks/${task.id}`, task); setEditTask(null); fetchTasks(); fetchRecommendation(); toast.success('Task updated'); } catch { toast.error('Failed to update'); }
   };
 
-  const formatTime = (seconds: number) => `${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, '0')}`;
+  const formatTime = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
 
-  // Filter tasks
+  // ── Derived state ────────────────────────────────────────────────────────
+
   const allTags = [...new Set(tasks.flatMap((t) => t.tags.split(',').map((x) => x.trim()).filter(Boolean)))];
   const filteredTasks = tasks.filter((t) => {
     const matchesSearch = !searchQuery || t.title.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesTag = !tagFilter || t.tags.split(',').map((x) => x.trim()).includes(tagFilter);
+    const matchesTag = tagFilter === 'all' || t.tags.split(',').map((x) => x.trim()).includes(tagFilter);
     return matchesSearch && matchesTag;
   });
 
-  const ScoreSlider = ({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) => {
-    const colors = ['', 'bg-red-400', 'bg-orange-400', 'bg-yellow-400', 'bg-emerald-400', 'bg-green-500'];
-    return (
-      <div>
-        <div className="flex justify-between mb-1.5">
-          <label className="text-xs font-medium text-foreground/70">{label}</label>
-          <span className={`text-xs font-bold px-1.5 py-0.5 rounded text-white ${colors[value]}`}>{value}</span>
-        </div>
-        <input type="range" min="1" max="5" value={value} onChange={(e) => onChange(Number(e.target.value))} className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-primary" />
-      </div>
-    );
-  };
-
-  const navItems: { key: View; label: string; icon: string }[] = [
-    { key: 'recommend', label: 'Focus', icon: '🎯' },
-    { key: 'add', label: 'Add', icon: '➕' },
-    { key: 'list', label: 'Tasks', icon: '📋' },
-    { key: 'history', label: 'History', icon: '📜' },
-    { key: 'settings', label: 'Settings', icon: '⚙️' },
+  const navItems: { key: View; label: string; icon: React.ElementType }[] = [
+    { key: 'recommend', label: 'Focus', icon: Target },
+    { key: 'add', label: 'Add', icon: Plus },
+    { key: 'list', label: 'Tasks', icon: ListTodo },
+    { key: 'history', label: 'History', icon: History },
+    { key: 'settings', label: 'Settings', icon: Settings },
   ];
+
+  // ── Render ───────────────────────────────────────────────────────────────
 
   return (
     <div className="min-h-screen bg-background">
       {/* Navbar */}
       <nav className="sticky top-0 z-40 bg-card/80 backdrop-blur-xl border-b border-border">
         <div className="max-w-4xl mx-auto px-4 py-3 flex justify-between items-center">
-          <h1 className="text-lg font-bold text-foreground tracking-tight">Decision Prioritiser</h1>
-          <div className="flex items-center gap-3">
-            <button onClick={() => setReviewOpen(true)} className="text-sm px-3 py-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-all" title="Weekly Review">
-              📊
-            </button>
-            <button onClick={() => { logout(); navigate('/login'); }} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-              Log Out
-            </button>
+          <div className="flex items-center gap-2">
+            <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center">
+              <Target className="h-4 w-4 text-primary-foreground" />
+            </div>
+            <h1 className="text-base font-bold tracking-tight">Decision Prioritiser</h1>
+          </div>
+          <div className="flex items-center gap-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" onClick={() => setReviewOpen(true)}>
+                  <BarChart3 className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Weekly Review</TooltipContent>
+            </Tooltip>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
+              onClick={() => { logout(); navigate('/login'); toast.info('Logged out'); }}
+            >
+              <LogOut className="h-4 w-4 mr-1.5" /> Log Out
+            </Button>
           </div>
         </div>
       </nav>
 
       <div className="max-w-4xl mx-auto px-4 py-6">
         {/* Tab bar */}
-        <div className="flex gap-1.5 p-1.5 bg-accent/50 rounded-2xl mb-6 overflow-x-auto">
-          {navItems.map((item) => (
-            <button key={item.key} onClick={() => setView(item.key)}
-              className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition-all ${
-                view === item.key ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-              }`}>
-              <span>{item.icon}</span> {item.label}
-              {item.key === 'list' && <span className="ml-1 text-xs opacity-60">({tasks.length})</span>}
-            </button>
-          ))}
-        </div>
+        <Tabs value={view} onValueChange={(v) => setView(v as View)} className="mb-6">
+          <TabsList className="w-full">
+            {navItems.map((item) => (
+              <TabsTrigger key={item.key} value={item.key} className="flex-1 gap-1.5">
+                <item.icon className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">{item.label}</span>
+                {item.key === 'list' && <Badge variant="secondary" className="ml-1 text-xs h-5 px-1.5">{tasks.length}</Badge>}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
 
-        {/* ─── Recommendation View ─── */}
+        {/* ─── Recommendation ─── */}
         {view === 'recommend' && (
-          <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-foreground mb-4">What Should I Do Next?</h2>
-            {recommendation ? (
-              <div className="space-y-4">
-                <div className="p-5 bg-primary/5 border border-primary/10 rounded-xl">
-                  <h3 className="text-base font-semibold text-foreground mb-1">{recommendation.title}</h3>
-                  {recommendation.tags && (
-                    <div className="flex flex-wrap gap-1.5 mb-2">
-                      {recommendation.tags.split(',').map((t) => t.trim()).filter(Boolean).map((tag) => (
-                        <span key={tag} className="px-2 py-0.5 text-xs rounded-full bg-accent text-muted-foreground">{tag}</span>
-                      ))}
-                    </div>
-                  )}
-                  <p className="text-sm text-muted-foreground"><strong>Because:</strong> {recommendation.reason}</p>
-                  {recommendation.first_step && <p className="text-sm text-muted-foreground mt-1"><strong>Start with:</strong> {recommendation.first_step}</p>}
-                </div>
+          <div key="recommend" className="animate-view-in">
+          <Card>
+            <CardHeader>
+              <CardTitle>What Should I Do Next?</CardTitle>
+              <CardDescription>Your algorithm-ranked top priority based on your custom weights.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {recommendation ? (
+                <>
+                  <Card className="bg-primary/5 border-primary/10">
+                    <CardContent className="p-5 space-y-2">
+                      <h3 className="text-base font-semibold">{recommendation.title}</h3>
+                      {recommendation.tags && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {recommendation.tags.split(',').map((t) => t.trim()).filter(Boolean).map((tag) => (
+                            <Badge key={tag} variant="outline" className="text-xs font-normal">{tag}</Badge>
+                          ))}
+                        </div>
+                      )}
+                      <p className="text-sm text-muted-foreground"><strong>Because:</strong> {recommendation.reason}</p>
+                      {recommendation.first_step && <p className="text-sm text-muted-foreground"><strong>Start with:</strong> {recommendation.first_step}</p>}
+                    </CardContent>
+                  </Card>
 
-                {recommendation.breakdown && <ScoreBreakdown breakdown={recommendation.breakdown} totalScore={recommendation.totalScore} />}
+                  {recommendation.breakdown && <ScoreBreakdown breakdown={recommendation.breakdown} totalScore={recommendation.totalScore} />}
 
-                <div className="flex flex-wrap gap-2">
-                  <button onClick={handleAccept} className="px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-medium hover:bg-emerald-700 transition-all active:scale-[0.97]">▶ Start (25 min)</button>
-                  <button onClick={() => setSnoozeOpen(true)} className="px-5 py-2.5 bg-amber-500 text-white rounded-xl text-sm font-medium hover:bg-amber-600 transition-all active:scale-[0.97]">💤 Snooze</button>
-                  <button onClick={handleComplete} className="px-5 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-all active:scale-[0.97]">✅ Complete</button>
-                </div>
-              </div>
-            ) : (
-              <EmptyState icon="🎯" title="No tasks to recommend" description="Add some tasks and I'll tell you what to focus on first." actionLabel="Add a Task" onAction={() => setView('add')} />
-            )}
-
-            <div className="mt-6 pt-4 border-t border-border">
-              <h3 className="text-sm font-medium text-foreground/70 mb-2">This Week</h3>
-              <div className="flex gap-4 text-sm text-muted-foreground">
-                <span className="flex items-center gap-1">✅ {stats.completed}</span>
-                <span className="flex items-center gap-1">💤 {stats.snoozed}</span>
-                <span className="flex items-center gap-1">📁 {stats.archived}</span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ─── Add Task View ─── */}
-        {view === 'add' && (
-          <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-foreground mb-5">Add New Task</h2>
-            <form onSubmit={handleAddTask} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-foreground/70 mb-1.5">Task Title</label>
-                <input type="text" value={newTask.title} onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
-                  className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all" required />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-foreground/70 mb-1.5">Tags (comma-separated)</label>
-                <input type="text" value={newTask.tags} onChange={(e) => setNewTask({ ...newTask, tags: e.target.value })}
-                  className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all" placeholder="work, learning, urgent" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-foreground/70 mb-1.5">First Step (25-min starter)</label>
-                <input type="text" value={newTask.first_step} onChange={(e) => setNewTask({ ...newTask, first_step: e.target.value })}
-                  className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all" placeholder="What can you do in 25 minutes?" />
-              </div>
-              <div className="grid grid-cols-2 gap-x-6 gap-y-4 pt-2">
-                <ScoreSlider label="Impact" value={newTask.impact_score} onChange={(v) => setNewTask({ ...newTask, impact_score: v })} />
-                <ScoreSlider label="Urgency" value={newTask.urgency_score} onChange={(v) => setNewTask({ ...newTask, urgency_score: v })} />
-                <ScoreSlider label="Learning" value={newTask.learning_score} onChange={(v) => setNewTask({ ...newTask, learning_score: v })} />
-                <ScoreSlider label="Risk Reduction" value={newTask.risk_score} onChange={(v) => setNewTask({ ...newTask, risk_score: v })} />
-                <ScoreSlider label="Energy" value={newTask.energy_score} onChange={(v) => setNewTask({ ...newTask, energy_score: v })} />
-              </div>
-              <button type="submit" className="w-full py-3 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-all hover:shadow-lg hover:shadow-primary/25 active:scale-[0.98]">
-                Add Task
-              </button>
-            </form>
-          </div>
-        )}
-
-        {/* ─── My Tasks View ─── */}
-        {view === 'list' && (
-          <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-foreground mb-4">My Tasks</h2>
-            {/* Search & Filter */}
-            <div className="flex flex-col sm:flex-row gap-3 mb-5">
-              <div className="relative flex-1">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">🔍</span>
-                <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search tasks..."
-                  className="w-full pl-9 pr-3.5 py-2.5 bg-background border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all" />
-              </div>
-              {allTags.length > 0 && (
-                <select value={tagFilter} onChange={(e) => setTagFilter(e.target.value)}
-                  className="px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 text-foreground">
-                  <option value="">All Tags</option>
-                  {allTags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
-                </select>
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    <Button onClick={handleAccept} className="gap-1.5"><Play className="h-3.5 w-3.5" /> Start (25 min)</Button>
+                    <Button variant="outline" onClick={() => setSnoozeOpen(true)} className="gap-1.5"><Moon className="h-3.5 w-3.5" /> Snooze</Button>
+                    <Button variant="secondary" onClick={handleComplete} className="gap-1.5"><CheckCircle2 className="h-3.5 w-3.5" /> Complete</Button>
+                  </div>
+                </>
+              ) : (
+                <EmptyState icon={<Target className="h-10 w-10 text-muted-foreground" />} title="No tasks to recommend"
+                  description="Add some tasks and I'll tell you what to focus on first." actionLabel="Add a Task" onAction={() => setView('add')} />
               )}
-            </div>
 
-            {filteredTasks.length === 0 ? (
-              <EmptyState icon={tasks.length === 0 ? '📝' : '🔍'} title={tasks.length === 0 ? 'No tasks yet' : 'No matching tasks'}
-                description={tasks.length === 0 ? 'Add your first task to get started with prioritised productivity.' : 'Try adjusting your search or filter.'}
-                actionLabel={tasks.length === 0 ? 'Add a Task' : undefined} onAction={tasks.length === 0 ? () => setView('add') : undefined} />
-            ) : (
-              <div className="space-y-2.5">
-                {filteredTasks.map((task) => (
-                  <div key={task.id} className="p-4 rounded-xl border border-border hover:bg-accent/30 transition-colors group">
-                    <div className="flex items-start justify-between">
+              <Separator />
+              <div>
+                <h3 className="text-sm font-medium text-foreground/70 mb-2">This Week</h3>
+                <div className="flex gap-4 text-sm text-muted-foreground">
+                  <span className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> {stats.completed}</span>
+                  <span className="flex items-center gap-1.5"><AlarmClock className="h-3.5 w-3.5 text-amber-500" /> {stats.snoozed}</span>
+                  <span className="flex items-center gap-1.5"><Archive className="h-3.5 w-3.5 text-blue-500" /> {stats.archived}</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          </div>
+        )}
+
+        {/* ─── Add Task ─── */}
+        {view === 'add' && (
+          <div key="add" className="animate-view-in">
+          <Card>
+            <CardHeader>
+              <CardTitle>Add New Task</CardTitle>
+              <CardDescription>Define what needs doing and rate it across five dimensions.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleAddTask} className="space-y-5">
+                <div className="space-y-2">
+                  <Label htmlFor="task-title">Task Title</Label>
+                  <Input id="task-title" value={newTask.title} onChange={(e) => setNewTask({ ...newTask, title: e.target.value })} required autoFocus />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="task-tags">Tags (comma-separated)</Label>
+                  <Input id="task-tags" value={newTask.tags} onChange={(e) => setNewTask({ ...newTask, tags: e.target.value })} placeholder="work, learning, urgent" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="task-step">First Step (25-min starter)</Label>
+                  <Input id="task-step" value={newTask.first_step} onChange={(e) => setNewTask({ ...newTask, first_step: e.target.value })} placeholder="What can you do in 25 minutes?" />
+                </div>
+
+                <Separator />
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5">
+                  {scoreDimensions.map((dim) => (
+                    <div key={dim.key} className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs flex items-center gap-1.5"><span>{dim.emoji}</span> {dim.label}</Label>
+                        <Badge variant="secondary" className="font-mono">{newTask[dim.key]}</Badge>
+                      </div>
+                      <Slider min={1} max={5} step={1} value={[newTask[dim.key]]} onValueChange={([v]) => setNewTask({ ...newTask, [dim.key]: v })} />
+                    </div>
+                  ))}
+                </div>
+
+                <Button type="submit" className="w-full gap-1.5"><Plus className="h-4 w-4" /> Add Task</Button>
+              </form>
+            </CardContent>
+          </Card>
+          </div>
+        )}
+
+        {/* ─── My Tasks ─── */}
+        {view === 'list' && (
+          <div key="list" className="animate-view-in">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2"><ListTodo className="h-5 w-5" /> My Tasks</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search tasks…" className="pl-9" />
+                </div>
+                {allTags.length > 0 && (
+                  <Select value={tagFilter} onValueChange={setTagFilter}>
+                    <SelectTrigger className="w-full sm:w-[160px]"><SelectValue placeholder="All Tags" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Tags</SelectItem>
+                      {allTags.map((tag) => <SelectItem key={tag} value={tag}>{tag}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+
+              {filteredTasks.length === 0 ? (
+                <EmptyState
+                  icon={tasks.length === 0 ? <ListTodo className="h-10 w-10 text-muted-foreground" /> : <Search className="h-10 w-10 text-muted-foreground" />}
+                  title={tasks.length === 0 ? 'No tasks yet' : 'No matching tasks'}
+                  description={tasks.length === 0 ? 'Add your first task to get started.' : 'Try adjusting your search or filter.'}
+                  actionLabel={tasks.length === 0 ? 'Add a Task' : undefined}
+                  onAction={tasks.length === 0 ? () => setView('add') : undefined}
+                />
+              ) : (
+                <div className="space-y-2">
+                  {filteredTasks.map((task) => (
+                    <div key={task.id} className="flex items-start justify-between p-3.5 rounded-lg border hover:bg-accent/50 transition-colors group">
                       <div className="flex-1 min-w-0">
-                        <h3 className="text-sm font-medium text-foreground">{task.title}</h3>
+                        <h3 className="text-sm font-medium truncate">{task.title}</h3>
                         {task.tags && (
                           <div className="flex flex-wrap gap-1.5 mt-2">
                             {task.tags.split(',').map((t) => t.trim()).filter(Boolean).map((tag) => (
-                              <span key={tag} className="px-2 py-0.5 text-xs rounded-full bg-accent text-muted-foreground">{tag}</span>
+                              <Badge key={tag} variant="outline" className="text-xs font-normal">{tag}</Badge>
                             ))}
                           </div>
                         )}
-                        <div className="flex gap-2 mt-2 text-xs">
-                          <span className="px-2 py-0.5 bg-violet-500/10 text-violet-600 dark:text-violet-400 rounded">Impact: {task.impact_score}</span>
-                          <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded">Energy: {task.energy_score}</span>
+                        <div className="flex gap-2 mt-2">
+                          <Badge variant="secondary" className="text-xs gap-1"><Zap className="h-3 w-3" /> {task.impact_score}</Badge>
+                          <Badge variant="secondary" className="text-xs gap-1"><Clock className="h-3 w-3" /> {task.energy_score}</Badge>
                         </div>
                       </div>
-                      <div className="flex gap-1.5 ml-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => setEditTask(task)} className="px-2.5 py-1.5 text-xs rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-all" title="Edit">✏️</button>
-                        <button onClick={() => handleArchive(task.id)} className="px-2.5 py-1.5 text-xs rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all" title="Archive">📁</button>
+                      <div className="flex gap-1 ml-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Tooltip><TooltipTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditTask(task)}><Pencil className="h-3.5 w-3.5" /></Button>
+                        </TooltipTrigger><TooltipContent>Edit</TooltipContent></Tooltip>
+                        <Tooltip><TooltipTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleArchive(task.id)}><Archive className="h-3.5 w-3.5" /></Button>
+                        </TooltipTrigger><TooltipContent>Archive</TooltipContent></Tooltip>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
           </div>
         )}
 
-        {/* ─── History View ─── */}
-        {view === 'history' && <HistoryView />}
+        {/* ─── History ─── */}
+        {view === 'history' && <div key="history" className="animate-view-in"><HistoryView /></div>}
 
-        {/* ─── Settings View ─── */}
-        {view === 'settings' && <SettingsView onWeightsUpdated={fetchRecommendation} />}
+        {/* ─── Settings ─── */}
+        {view === 'settings' && <div key="settings" className="animate-view-in"><SettingsView onWeightsUpdated={fetchRecommendation} /></div>}
 
-        {/* ─── Timer View ─── */}
+        {/* ─── Timer ─── */}
         {view === 'timer' && (
-          <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-foreground mb-4">Focus Timer</h2>
-            <div className="text-center py-10">
-              <p className="text-sm text-muted-foreground mb-3">{timerTask}</p>
-              <div className="text-7xl font-bold text-foreground mb-8 font-mono tabular-nums">{formatTime(timerSeconds)}</div>
-              <div className="flex gap-3 justify-center">
-                <button onClick={() => setTimerRunning(!timerRunning)}
-                  className="px-8 py-3 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-all active:scale-[0.97]">
-                  {timerRunning ? '⏸ Pause' : '▶ Start'}
-                </button>
-                <button onClick={() => { setTimerSeconds(25 * 60); setTimerRunning(false); }}
-                  className="px-8 py-3 border border-border rounded-xl text-sm font-medium text-muted-foreground hover:bg-accent transition-all active:scale-[0.97]">
-                  ↺ Reset
-                </button>
+          <div key="timer" className="animate-view-in">
+          <Card>
+            <CardHeader>
+              <CardTitle>Focus Timer</CardTitle>
+              <CardDescription>{timerTask}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="text-center py-10">
+                <div className="text-7xl font-bold font-mono tabular-nums mb-8">{formatTime(timerSeconds)}</div>
+                <div className="flex gap-3 justify-center">
+                  <Button size="lg" onClick={() => setTimerRunning(!timerRunning)} className="gap-2 min-w-[120px]">
+                    {timerRunning ? <><Pause className="h-4 w-4" /> Pause</> : <><Play className="h-4 w-4" /> Start</>}
+                  </Button>
+                  <Button size="lg" variant="outline" onClick={() => { setTimerSeconds(25 * 60); setTimerRunning(false); }} className="gap-2">
+                    <RotateCcw className="h-4 w-4" /> Reset
+                  </Button>
+                </div>
               </div>
-            </div>
+            </CardContent>
+          </Card>
           </div>
         )}
       </div>
