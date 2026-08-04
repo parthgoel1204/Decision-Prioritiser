@@ -20,7 +20,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import {
   Target, Plus, ListTodo, History, Settings, LogOut, BarChart3, Search,
   Play, Pause, RotateCcw, Zap, Clock, CheckCircle2, Archive, Pencil,
-  Moon, AlarmClock,
+  Moon, AlarmClock, Wand2, Loader2,
 } from 'lucide-react';
 
 // Custom components
@@ -31,6 +31,9 @@ import EditTaskModal from '@/components/EditTaskModal';
 import SettingsView from '@/components/SettingsView';
 import HistoryView from '@/components/HistoryView';
 import WeeklyReviewModal from '@/components/WeeklyReviewModal';
+
+// Hooks
+import { useScoreSuggestion } from '@/hooks/useScoreSuggestion';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -76,6 +79,18 @@ export default function Dashboard() {
     title: '', tags: '', impact_score: 3, urgency_score: 3,
     learning_score: 3, risk_score: 3, energy_score: 3, first_step: '',
   });
+
+  const { isLoading: aiLoading, error: aiError, reasons, suggestScores, clearSuggestion } =
+    useScoreSuggestion((suggested) => {
+      setNewTask((prev) => ({
+        ...prev,
+        impact_score: suggested.impact,
+        urgency_score: suggested.urgency,
+        learning_score: suggested.learning,
+        risk_score: suggested.risk,
+        energy_score: suggested.energy,
+      }));
+    });
 
   const { logout } = useAuth();
   const navigate = useNavigate();
@@ -129,6 +144,7 @@ export default function Dashboard() {
     try {
       await axios.post('/api/tasks', newTask);
       setNewTask({ title: '', tags: '', impact_score: 3, urgency_score: 3, learning_score: 3, risk_score: 3, energy_score: 3, first_step: '' });
+      clearSuggestion();
       fetchTasks(); fetchRecommendation();
       toast.success('Task added!');
       setView('recommend');
@@ -302,18 +318,58 @@ export default function Dashboard() {
                   <Input id="task-step" value={newTask.first_step} onChange={(e) => setNewTask({ ...newTask, first_step: e.target.value })} placeholder="What can you do in 25 minutes?" />
                 </div>
 
+                <div className="flex flex-col gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={!newTask.title.trim() || aiLoading}
+                    onClick={() => suggestScores(newTask.title, newTask.first_step)}
+                    className="w-full border-dashed"
+                  >
+                    {aiLoading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Analysing your task...
+                      </>
+                    ) : (
+                      <>
+                        <Wand2 className="mr-2 h-4 w-4" />
+                        Suggest Scores with AI
+                      </>
+                    )}
+                  </Button>
+
+                  {aiError && (
+                    <p className="text-xs text-destructive text-center">{aiError}</p>
+                  )}
+
+                  {reasons && !aiError && (
+                    <p className="text-xs text-muted-foreground text-center">
+                      Scores suggested — review and adjust as needed
+                    </p>
+                  )}
+                </div>
+
                 <Separator />
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5">
-                  {scoreDimensions.map((dim) => (
-                    <div key={dim.key} className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <Label className="text-xs flex items-center gap-1.5"><span>{dim.emoji}</span> {dim.label}</Label>
-                        <Badge variant="secondary" className="font-mono">{newTask[dim.key]}</Badge>
+                  {scoreDimensions.map((dim) => {
+                    const dimKey = dim.key.replace('_score', '') as 'impact' | 'urgency' | 'learning' | 'risk' | 'energy';
+                    return (
+                      <div key={dim.key} className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-xs flex items-center gap-1.5"><span>{dim.emoji}</span> {dim.label}</Label>
+                          <Badge variant="secondary" className="font-mono">{newTask[dim.key]}</Badge>
+                        </div>
+                        <Slider min={1} max={5} step={1} value={[newTask[dim.key]]} onValueChange={([v]) => setNewTask({ ...newTask, [dim.key]: v })} />
+                        {reasons?.[dimKey] && (
+                          <p className="text-xs text-muted-foreground italic pl-1">
+                            {reasons[dimKey]}
+                          </p>
+                        )}
                       </div>
-                      <Slider min={1} max={5} step={1} value={[newTask[dim.key]]} onValueChange={([v]) => setNewTask({ ...newTask, [dim.key]: v })} />
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 <Button type="submit" className="w-full gap-1.5"><Plus className="h-4 w-4" /> Add Task</Button>

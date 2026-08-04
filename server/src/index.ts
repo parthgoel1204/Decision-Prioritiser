@@ -21,6 +21,7 @@ import {
   renameTag,
   deleteTag,
 } from './routes/tasks.js';
+import aiRoutes from './routes/ai.js';
 
 dotenv.config();
 
@@ -69,6 +70,9 @@ app.delete('/api/tags', deleteTag);
 
 // Export
 app.get('/api/export', exportData);
+
+// AI Suggestions
+app.use('/api/ai', aiRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
