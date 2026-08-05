@@ -1,7 +1,7 @@
 import { Router, Response } from "express";
 import Groq from "groq-sdk";
 import { z } from "zod";
-import { AuthRequest, authenticate as authMiddleware } from "../middleware/auth";
+import { AuthRequest, authenticate as authMiddleware } from "../middleware/auth.js";
 
 const router = Router();
 
