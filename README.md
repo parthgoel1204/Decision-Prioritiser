@@ -2,13 +2,14 @@
 
 A modern, highly polished, full-stack decision-making and task prioritization application. It helps you prioritize tasks using a multi-dimensional recommendation engine based on customizable weight dimensions (Impact, Urgency, Learning, Risk, and Energy) rather than a simple, static checklist.
 
-🚀 **Live Frontend Demo**: [https://decision-prioritiser-frontend-4vx51bt63.vercel.app/](https://decision-prioritiser-frontend-4vx51bt63.vercel.app/)
+🚀 **Live Frontend Demo**: [https://decision-prioritiser-frontend.vercel.app/](https://decision-prioritiser-frontend.vercel.app/)
 
 ---
 
 ## ✨ Features
 
 - **🧠 Recommendation Engine**: Dynamically calculates scores for active tasks based on your personalized weights and shows you *exactly* what task you should focus on next.
+- **🤖 AI Score Suggestions (Groq)**: When adding a task, hit *"Suggest with AI"* to have an LLM (Llama 3 via Groq) automatically score all five dimensions and explain its reasoning — you can accept the suggestions or tweak them manually.
 - **🎨 Premium UI/UX (Shadcn UI)**: Beautiful responsive design built with Radix primitives, consistent Lucide icons, smooth tab transitions, and global toast notifications.
 - **⏱️ Focus Timer**: A built-in 25-minute Pomodoro timer connected to your recommended tasks to help you jump straight into deep work.
 - **🎛️ Settings & Weight Customisation**: Tailor the recommendation algorithm by dragging sliders to adjust how much each dimension influences the final priority score.
@@ -35,6 +36,7 @@ A modern, highly polished, full-stack decision-making and task prioritization ap
 - **TypeScript**
 - **JWT (JsonWebToken)** for secure user authentication
 - **Zod** (Request payload validation)
+- **Groq SDK** — calls the Llama 3 model to auto-suggest dimension scores for new tasks
 
 ### Database
 - **Turso (LibSQL)**: Edge SQLite database client for Vercel Serverless compatibility.
@@ -64,6 +66,11 @@ CLIENT_URL=http://localhost:5173
 # If left blank, it will automatically create a local 'local.db' SQLite file.
 TURSO_DATABASE_URL=libsql://your-db-name.turso.io
 TURSO_AUTH_TOKEN=your_turso_token
+
+# Required for AI Score Suggestions feature.
+# Get a free key at https://console.groq.com
+GROQ_API_KEY=your_groq_api_key
+GROQ_MODEL=llama-3.1-8b-instant (for more info on the models you may refer to docs)
 ```
 
 ### 4. Running the App
@@ -80,4 +87,4 @@ npm run dev
 
 This monorepo is fully optimized to run on Vercel:
 - **Backend (`/server`)**: Packaged as a Serverless function (`@vercel/node`) configured in `server/vercel.json`.
-- **Frontend (`/client`)**: Deployed as a standard SPA using Vite presets.
+- **Frontend (`/client`)**: Deployed as a standard SPA using Vite presets. Set `VITE_API_URL` in the Vercel frontend project's environment variables to point to your deployed backend URL.
